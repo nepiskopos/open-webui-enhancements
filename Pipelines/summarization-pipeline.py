@@ -197,15 +197,7 @@ class Pipeline:
         self.user_timestamps = SharedUserFilesLatestUploadDict()
 
         # Initialize LLM endpoint API URL
-        if self.valves.LITELLM_API_BASE_URL.endswith('/v1/'):
-            self.service_url = f"{self.valves.LITELLM_API_BASE_URL}chat/completions"
-        elif self.valves.LITELLM_API_BASE_URL.endswith('/v1'):
-            self.service_url = f"{self.valves.LITELLM_API_BASE_URL}/chat/completions"
-        else:
-            if self.valves.LITELLM_API_BASE_URL.endswith('/'):
-                self.service_url = f"{self.valves.LITELLM_API_BASE_URL}v1/chat/completions"
-            else:
-                self.service_url = f"{self.valves.LITELLM_API_BASE_URL}/v1/chat/completions"
+        self.service_url = f"{self.valves.LITELLM_API_BASE_URL.rstrip('/').rstrip('/v1')}/v1/chat/completions"
 
         # Initialize HTTP headers for the LLM endpoint API requests
         self.http_headers = {
