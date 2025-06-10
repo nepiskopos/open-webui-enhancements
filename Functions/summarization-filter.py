@@ -288,7 +288,7 @@ class Filter:
         # Get content from model response
         model_response_content = body.get('messages', [])[-1].get('content', '')
 
-        # logging.getLogger(self.valves.APP_ID).debug(f"OUTLET: Received files summaries:\n{json.dumps(model_response_content, indent=2)}")
+        logging.getLogger(self.valves.APP_ID).debug(f"OUTLET: Received files summaries:\n{json.dumps(model_response_content, indent=2)}")
 
         try:
             # Get response content (substitutions) as a JSON object
@@ -380,9 +380,8 @@ class Filter:
         for path in file_paths:
             if path:
                 try:
-                    if os.path.exists(path):
-                        if os.path.isfile(path):
-                            os.remove(path)
+                    if os.path.exists(path) and os.path.isfile(path):
+                        os.remove(path)
                 except TypeError as e:
                     logging.getLogger(self.valves.APP_ID).error(f"_fs_delete_files: File '{path}' is invalid: {e}")
                 except FileNotFoundError as e:
