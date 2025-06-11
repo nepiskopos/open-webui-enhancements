@@ -432,7 +432,7 @@ class Pipeline:
         return oifiles
 
     # Change from async function to regular function
-    def _get_summarization(self, text: str, max_retries: int=5, wait_interval: int=5) -> str:
+    def _get_summarization(self, text: str, max_retries: int=5, wait_interval: int=10) -> str:
         '''
         This function sends a request to the OpenAI API to get a summarization of the provided text.
         If the text is empty, it returns a message indicating that no content was provided.
@@ -481,7 +481,7 @@ class Pipeline:
                         session.trust_env = False  # Ignore environment variables
                         retries = Retry(
                             total=max_retries,
-                            backoff_factor=10,
+                            backoff_factor=wait_interval,
                             status_forcelist=[429, 500, 502, 503, 504],
                             allowed_methods=frozenset(['POST'])  # Add POST method
                         )
@@ -522,14 +522,9 @@ class Pipeline:
 
         return summary
 
-    def _check_litellm_status(self):
+    def _check_litellm_status(self) -> bool:
         """Check if LiteLLM server is running"""
-        base_url = self.valves.LITELLM_API_BASE_URL
-        if base_url.endswith('/'):
-            base_url = base_url[:-1]
-        if base_url.endswith('/v1'):
-            base_url = base_url[:-3]
-        url = f"{base_url}/health"
+        url = f"{self.valves.LITELLM_API_BASE_URL.rstrip('/').rstrip('/v1')}/health"
 
         try:
             # Disable any proxy settings that might interfere

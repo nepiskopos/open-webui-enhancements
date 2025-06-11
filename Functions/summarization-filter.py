@@ -296,7 +296,7 @@ class Filter:
 
             # Check if text in any user-uploaded acceptable files was processed
             if summaries:
-                # Create a list for collecting file IDs of the acceptable files which where successfully summarized
+                # Create a list for collecting file IDs of the acceptable files which where successfully processed
                 processed_file_ids = []
 
                 # Iterate over the list of modified files
@@ -308,12 +308,12 @@ class Filter:
                         processed_file_ids.append(summary['id'])
 
                 if processed_file_ids:
-                    # Create message output for summarized files
+                    # Create message output for processed files
                     prompt_response = prompt_response + \
                         "The following DOCX files have been successfully summarized:\n\n" + \
                         "\n\n\n".join([f"* **{v['filename']}**:\n{v['summary']}" for v in user_files['acceptable'].values()])
 
-                    # Collect file IDs of acceptable files whose summarization failed
+                    # Collect file IDs of acceptable files whose processing failed
                     unprocessed_file_ids = set(user_files['acceptable'].keys()).difference(set(processed_file_ids))
 
                     if unprocessed_file_ids:
