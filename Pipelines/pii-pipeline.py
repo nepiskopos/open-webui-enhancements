@@ -150,20 +150,17 @@ class Pipeline:
         LITELLM_API_BASE_URL: str = Field(
             default=os.getenv(
                 "LITELLM_API_BASE_URL",
-                "http://host.docker.internal:4000/v1",
             ),
             description="URL of the LiteLLM service.",
         )
         LITELLM_API_KEY: str = Field(
             default=os.getenv(
                 "LITELLM_API_KEY",
-                "sk-1234",
             ),
             description="API key for authenticating requests to the LiteLLM service.",
         )
         MODEL_ID: str = Field(default=os.getenv(
                 "MODEL_ID",
-                "GPT-4o",
             ),
             description="Model of choice as defined in LiteLLM configuration.",
         )
@@ -399,7 +396,6 @@ class Pipeline:
                             data.append(
                                 {
                                     "id": file.get_id(),
-                                    # "filename": file.get_name(),
                                     "pii": pii,
                                 }
                             )

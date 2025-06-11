@@ -288,8 +288,6 @@ class Filter:
         # Get content from model response
         model_response_content = body.get('messages', [])[-1].get('content', '')
 
-        # logging.getLogger(self.valves.APP_ID).debug(f"OUTLET: Received files PIIs:\n{json.dumps(model_response_content, indent=2)}")
-
         try:
             # Get response content (substitutions) as a JSON object
             piis = json.loads(model_response_content)
