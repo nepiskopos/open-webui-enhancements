@@ -1,5 +1,5 @@
 # Open WebUI stuff
-Custom functionality and RAG developed and implemented for the [Open WebUI](https://github.com/open-webui/open-webui) tool.
+Custom functionality, prompting and RAG developed and implemented for the [Open WebUI](https://github.com/open-webui/open-webui) tool.
 
 This is a collection of custom Tools, Functions and Pipelines created for the Open WebUI tool.
 
