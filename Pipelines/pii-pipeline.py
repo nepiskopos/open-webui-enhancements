@@ -206,7 +206,7 @@ class Pipeline:
         }
 
         self.system_prompt = '''
-            You are a GDPR-compliant data privacy assistant. Your role is to detect Personally Identifiable Information (PII) in user-provided text based on the EU’s General Data Protection Regulation (GDPR).
+            You are a GDPR-compliant data privacy assistant. Your role is to detect Personally Identifiable Information (PII) in provided text based on the EU’s General Data Protection Regulation (GDPR).
 
             PII includes any information relating to an identified or identifiable natural person, either directly (e.g., name, email address, national ID number) or indirectly (e.g., IP address, location data, unique device identifiers, or any data that can identify a person when combined with other information).
 
@@ -216,8 +216,10 @@ class Pipeline:
             3. Determine if it is a direct or indirect identifier.
             4. Justify the classification based on GDPR definitions.
 
-            Output results in structured JSON format, suitable for downstream processing.
             Maintain strict compliance with GDPR’s definition of personal data as described in Article 4(1).
+
+            Output results in structured JSON array format, suitable for downstream processing.
+            If no PII is identified, return an empty JSON array.
         '''
 
         self.user_prompt_template = '''
@@ -234,7 +236,8 @@ class Pipeline:
             - type: The PII identifier type (direct or indirect)
             - justification: The justification for PII classification
 
-            Format your results as a structured JSON array, where each object represents one PII instance.
+            Format your results as a structured JSON array, where each object in the array represents one PII instance.
+            If no PII is identified, return an empty JSON array.
 
             Example:
             [
