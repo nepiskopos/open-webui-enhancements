@@ -109,35 +109,17 @@ class Pipeline:
     user=uploaded DOCX document files, utilizing LangGraph.
     '''
     class Valves(BaseModel):
-        LITELLM_API_BASE_URL: str = Field(
+        LANGGRAPH_STUDIO_URL: str = Field(
             default=os.getenv(
-                "LITELLM_API_BASE_URL",
-                "",  # Default URL for local development
-            ),
-            description="URL of the LiteLLM service.",
-        )
-        LITELLM_API_KEY: str = Field(
-            default=os.getenv(
-                "LITELLM_API_KEY",
-                "",  # Default API key for local development (should be replaced with a real key in production)
-            ),
-            description="API key for authenticating requests to the LiteLLM service.",
-        )
-        MODEL_ID: str = Field(default=os.getenv(
-                "MODEL_ID",
-                "",  # Default model ID for local development (should be replaced with a real model ID in production)
-            ),
-            description="Model of choice as defined in LiteLLM configuration.",
-        )
-        LANGGRAPH_STUDIO_URL: str = Field(default=os.getenv(
                 "LANGGRAPH_STUDIO_URL",
-                "",  # Default model ID for local development (should be replaced with a real model ID in production)
+                "",
             ),
             description="URL of the LangGraph Studio.",
         )
-        LANGSMITH_API_KEY: str = Field(default=os.getenv(
-                "LANGSMITH_API_KEY",
-                "",  # Default model ID for local development (should be replaced with a real model ID in production)
+        LANGGRAPH_API_KEY: str = Field(
+            default=os.getenv(
+                "LANGGRAPH_API_KEY",
+                "",
             ),
             description="LangSmith API key (Service Key or Personal Access Tokens).",
         )
@@ -175,7 +157,7 @@ class Pipeline:
 
         self.langgraph_client = get_sync_client(
             url=self.valves.LANGGRAPH_STUDIO_URL,
-            api_key=self.valves.LANGSMITH_API_KEY,
+            api_key=self.valves.LANGGRAPH_API_KEY,
         )
 
     async def on_startup(self):
@@ -250,8 +232,6 @@ class Pipeline:
                 # Add file to the list of collected new files
                 if file_info["file"]["created_at"] >= latest_timestamp:
                     new_files.append(file_info)
-
-            logging.getLogger(self.valves.APP_ID).debug(f"INLET: User-uploaded files '{new_files}'")
 
             # Keep new user files into the current user file contents
             self.user_file_contents.insert_user_files(user_id, chat_id, new_files)
