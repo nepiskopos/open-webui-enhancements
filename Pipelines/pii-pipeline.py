@@ -177,17 +177,20 @@ class Pipeline:
         LITELLM_API_BASE_URL: str = Field(
             default=os.getenv(
                 "LITELLM_API_BASE_URL",
+                "",
             ),
             description="URL of the LiteLLM service.",
         )
         LITELLM_API_KEY: str = Field(
             default=os.getenv(
                 "LITELLM_API_KEY",
+                "",
             ),
             description="API key for authenticating requests to the LiteLLM service.",
         )
         MODEL_ID: str = Field(default=os.getenv(
                 "MODEL_ID",
+                "",
             ),
             description="Model of choice as defined in LiteLLM configuration.",
         )

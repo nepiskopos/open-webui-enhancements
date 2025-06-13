@@ -105,46 +105,46 @@ class SharedUserFilesLatestUploadDict:
 class Pipeline:
     '''
     This is a class for creating a Pipeline for censoring
-    sensitive information in text originating from user=uploaded
-    DOCX document files.
+    sensitive information in text originating from
+    user=uploaded DOCX document files, utilizing LangGraph.
     '''
     class Valves(BaseModel):
         LITELLM_API_BASE_URL: str = Field(
             default=os.getenv(
                 "LITELLM_API_BASE_URL",
-                "http://host.docker.internal:4000/v1",  # Default URL for local development
+                "",  # Default URL for local development
             ),
             description="URL of the LiteLLM service.",
         )
         LITELLM_API_KEY: str = Field(
             default=os.getenv(
                 "LITELLM_API_KEY",
-                "sk-1234",  # Default API key for local development (should be replaced with a real key in production)
+                "",  # Default API key for local development (should be replaced with a real key in production)
             ),
             description="API key for authenticating requests to the LiteLLM service.",
         )
         MODEL_ID: str = Field(default=os.getenv(
                 "MODEL_ID",
-                "GPT-4o",  # Default model ID for local development (should be replaced with a real model ID in production)
+                "",  # Default model ID for local development (should be replaced with a real model ID in production)
             ),
             description="Model of choice as defined in LiteLLM configuration.",
         )
         LANGGRAPH_STUDIO_URL: str = Field(default=os.getenv(
                 "LANGGRAPH_STUDIO_URL",
-                "http://host.docker.internal:2024",  # Default model ID for local development (should be replaced with a real model ID in production)
+                "",  # Default model ID for local development (should be replaced with a real model ID in production)
             ),
             description="URL of the LangGraph Studio.",
         )
         LANGSMITH_API_KEY: str = Field(default=os.getenv(
                 "LANGSMITH_API_KEY",
-                "http://host.docker.internal:2024",  # Default model ID for local development (should be replaced with a real model ID in production)
+                "",  # Default model ID for local development (should be replaced with a real model ID in production)
             ),
             description="LangSmith API key (Service Key or Personal Access Tokens).",
         )
         APP_ID: str = Field(
             default=os.getenv(
                 "APP_ID",
-                "PIPELINE_DOCUMENT_GDPR_PII_IDENTIFICATION",
+                "PIPELINE_LANGGRAPH_DOCUMENT_GDPR_PII_IDENTIFICATION",
             ),
             description="Application name for logging.",
         )
