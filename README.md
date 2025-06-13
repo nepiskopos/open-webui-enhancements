@@ -1,9 +1,15 @@
-# Open WebUI stuff
+# Open WebUI Enhancements
 
-This repository contains custom tools, functions, and pipeline enhancements developed for the [Open WebUI](https://github.com/open-webui/open-webui) platform. 
+This repository showcases a collection of custom tools, functions, and pipeline extensions built on top of the [Open WebUI](https://github.com/open-webui/open-webui) platform. 
 
-These additions extend the core functionality of Open WebUI, focusing on prompt engineering, Retrieval-Augmented Generation (RAG), and other experimental features.
+These enhancements were developed to explore and extend the capabilities of Open WebUI, with a focus on:
 
-The implementation is written in Python and leverages Azure OpenAI’s GPT-4o model.
+    🧠 Prompt engineering
 
-These solutions were created during my time at [IBM](https://www.ibm.com), as part of a project for the [National Bank of Greece (NBG)](https://www.nbg.gr/en/), while exploring and customizing the Open WebUI framework.
+    🔎 Retrieval-Augmented Generation (RAG)
+
+    🧪 Experimental LLM workflows
+
+All components are implemented in Python, leveraging Azure OpenAI’s GPT-4o model for advanced natural language understanding and generation.
+
+These solutions were developed during my time at [IBM](https://www.ibm.com), as part of the Digital Transformation project for the [National Bank of Greece (NBG)](https://www.nbg.gr/en/), where I was tasked with exploring and customizing the Open WebUI framework to meet complex enterprise needs.
