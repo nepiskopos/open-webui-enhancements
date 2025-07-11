@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field
+from pydantic_core import core_schema
 from requests.adapters import HTTPAdapter
-from typing import Generator, Iterator, Optional, Union
+from typing import Any, Generator, Iterator, Optional, Union
 from urllib3.util.retry import Retry
+import html
 import json
 import logging
 import os
@@ -13,40 +15,27 @@ import threading
 
 class OIFile:
     '''
-    This is a class for representing a user-uploaded
-    file object. It stores the file ID, the file name,
-    the file content and the length of the fiel content.
-    It also provides methods to access these attributes
-    and to build the document content by normalizing
-    newlines, replacing tabs with spaces, and collapsing
-    multiple spaces into a single space.
+    This is a class for representing a user-uploaded document object.
+    It stores the document ID, the document name, the document mime type
+    and the document content. It also provides methods to access these
+    attributes, and to add and access two additional and optional attributes,
+    which are the document summary and the document upload timestamp.
 
     Attributes:
     - id (str): Unique identifier for the file.
     - name (str): Name of the file.
+    - type (str): MIME type of the file.
     - content (str): Normalized content of the file.
-    - size (int): Size of the file content in bytes.
+    - summary (str, optional): Summary of the file content.
+    - timestamp (int, optional): Timestamp of when the file was uploaded.
     '''
-    def __init__(self, id: str, name: str, content: str):
+    def __init__(self, id: str, name: str, type: str, content: str):
         self.id = id
         self.name = name
-        self.content = self._build_document(content)
-        self.size = len(self.content)
-
-    def __repr__(self) -> str:
-        return f"File(id={self.id}, name={self.name}, size={self.size} bytes)"
-
-    def _build_document(self, text: str) -> str:
-        # First normalize consecutive newlines to single newlines
-        document = re.sub(r'\n+', ' \n', text)
-
-        # Replace tabs with spaces
-        document = re.sub(r'\t', ' ', document)
-
-        # Replace multiple consecutive spaces with a single space
-        document = re.sub(r' +', ' ', document)
-
-        return document
+        self.type = type
+        self.content = self._build_content(content)
+        self.summary = None
+        self.timestamp = None
 
     def get_id(self) -> str:
         return self.id
@@ -54,124 +43,189 @@ class OIFile:
     def get_name(self) -> str:
         return self.name
 
+    def get_type(self) -> str:
+        return self.type
+
     def get_content(self) -> str:
         return self.content
 
     def get_size(self) -> int:
-        return self.size
+        return len(self.content)
+
+    def get_summary(self) -> str:
+        return self.summary or ''
+
+    def get_timestamp(self) -> int:
+        return self.timestamp or 0
+
+    def set_summary(self, summary: str) -> None:
+        self.summary = summary
+
+    def set_timestamp(self, timestamp: int) -> None:
+        self.timestamp = timestamp
+
+    def _build_content(self, text_content: str) -> str:
+        text = ''
+
+        if text_content:
+            text = text_content
+
+            # Step 1: Remove HTML comments
+            text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+
+            # Step 2: Remove HTML comments (duplicate step in original code)
+            text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+
+            # Step 3: Remove HTML tags
+            text = re.sub(r'<[^>]+>', '', text)
+
+            # Step 4: Decode HTML entities like &nbsp;
+            text = html.unescape(text)
+
+            # Step 5: Fix spacing issues
+            # Normalize multiple spaces
+            text = re.sub(r' +', ' ', text)
+
+            # Normalize newlines (no more than two consecutive)
+            text = re.sub(r'\n{3,}', '\n\n', text)
+
+            # Step 6: Fix specific layout issues from the document
+            # Fix broken lines that should be together (like "Αριθμός Γ.Ε.ΜΗ .: 180526838000")
+            text = re.sub(r'([a-zA-Zα-ωΑ-Ω])\.\s+:', r'\1.:', text)
+
+            # Step 7: Remove extra spaces before punctuation
+            text = re.sub(r' ([.,:])', r'\1', text)
+
+            # Clean up trailing whitespace on each line
+            text = '\n'.join(line.rstrip() for line in text.splitlines())
+
+            # Clean up whitespaces at the beginning and ending of each string
+            text.strip()
+
+        return text
+
+    def __repr__(self) -> str:
+        return f"File(id={self.id}, name={self.name}, type={self.type}, size={len(self.content)} bytes)"
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, _source_type: Any, _handler: Any
+    ) -> core_schema.CoreSchema:
+        """Tell Pydantic how to serialize/deserialize OIFile objects."""
+        return core_schema.union_schema([
+            # Handle OIFile instance
+            core_schema.is_instance_schema(OIFile),
+            # Convert dict to OIFile
+            core_schema.chain_schema([
+                core_schema.dict_schema(),
+                core_schema.no_info_plain_validator_function(
+                    lambda d: OIFile(
+                        id=d.get("id"),
+                        name=d.get("name"),
+                        type=d.get("type"),
+                        content=d.get("content"),
+                    )
+                ),
+            ]),
+        ])
 
     def to_dict(self) -> dict:
-        """
-        Export the file object as a dictionary.
-        """
+        """Convert OIFile instance to a dictionary."""
         return {
-            'id': self.id,
-            'name': self.name,
-            'content': self.content,
+            "id": self.id,
+            "name": self.name,
+            "type": self.type,
+            "content": self.content,
+            "summary": self.summary
         }
-
-    def update_content(self, content: str) -> None:
-        """
-        Update the content of the file and recalculate its size.
-        """
-        self.content = self._build_document(content)
-        self.size = len(self.content)
 
 
 class SharedUserFilesDict:
     '''
-    This is a class for creating a shared dictionary
-    for storing information on the latest user-uploaded
-    files. It uses a lock to ensure thread safety when
-    accessing the shared dictionary.
+    This is a class for creating a shared dictionary for
+    storing the latest uploaded files for each user-chat
+    combination. It uses a lock to ensure thread safety
+    when accessing the shared dictionary.
     '''
     def __init__(self):
         self._data = dict()
         self._lock = threading.Lock()  # Create a lock
 
-    def get_user_files(self, user_id: str, chat_id: str) -> dict:
-        return_data = {}
-
-        # Construct the key for the user_id and chat_id
-        key = f'{user_id}_{chat_id}'
-
-        with self._lock:  # Acquire the lock for retrieving data
-            # Check if the key exists in the dictionary
-            if key in self._data:
-                return_data = self._data[key]
-
-        return return_data
-
-    def insert_user_files(self, user_id: str, chat_id: str, files: dict) -> None:
-        # Construct the key for the user_id and chat_id
+    def add_user_file_info(self, user_id: str, chat_id: str, file_info: OIFile) -> None:
+        # Construct index key combining user_id and chat_id
         key = f'{user_id}_{chat_id}'
 
         with self._lock:  # Acquire the lock for inserting data
-            # Check if the key exists in the dictionary
-            if key not in self._data:
-                self._data[key] = {}
-            for k, v in files.items():
-                if k not in self._data[key]:
-                    self._data[key][k] = v
+            # Update file name
+            self._data.setdefault(key, []).append(file_info)
 
-    def delete_user_data(self, user_id: str, chat_id: str) -> None:
-        # Construct the key for the user_id and chat_id
+    def add_user_file_infos(self, user_id: str, chat_id: str, file_infos: list[OIFile]) -> None:
+        # Construct index key combining user_id and chat_id
         key = f'{user_id}_{chat_id}'
 
-        with self._lock:  # Acquire the lock for writing
-            # Check if the user_id exists in the dictionary
-            if key in self._data:
-                # Remove user data from the dictionary
-                del self._data[key]
+        with self._lock:  # Acquire the lock for inserting data
+            # Update file name
+            self._data.setdefault(key, []).extend(file_infos)
 
-    def get_all_data(self) -> dict:
-        with self._lock:  # Acquire the lock for writing
-            return dict(self._data)
+    def get_user_files_info(self, user_id: str, chat_id: str) -> list[OIFile]:
+        return_data = None
+
+        # Construct index key combining user_id and chat_id
+        key = f'{user_id}_{chat_id}'
+
+        with self._lock:  # Acquire the lock for retrieving data
+            # If key exists in the dictionary, return its value, otherwise return 0
+            return_data = self._data.get(key, [])
+
+        return return_data
+
+    def clear_user_files_info(self, user_id: str, chat_id: str) -> None:
+        # Construct index key combining user_id and chat_id
+        key = f'{user_id}_{chat_id}'
+
+        with self._lock:  # Acquire the lock for clearing data
+            # Clear user files info
+            if key in self._data:
+                del self._data[key]
 
 
 class SharedUserFilesLatestUploadDict:
     '''
     This is a class for creating a shared dictionary
-    for storing the latest file upload of the users'
-    files. It uses a lock to ensure thread safety when
-    accessing the shared dictionary.
+    for storing the latest file upload timestamp for
+    each user-chat combination. It uses a lock to ensure
+    thread safety when accessing the shared dictionary.
     '''
     def __init__(self):
         self._data = dict()
         self._lock = threading.Lock()  # Create a lock
 
     def get_user_latest_timestamp(self, user_id: str, chat_id: str) -> int:
-        return_data = 0
-
-        # Construct the key for the user_id and chat_id
+        # Construct index key combining user_id and chat_id
         key = f'{user_id}_{chat_id}'
 
         with self._lock:  # Acquire the lock for retrieving data
-            # Check if the key exists in the dictionary
-            if key in self._data:
-                return_data = self._data[key]
+            # If key exists in the dictionary, return its value, otherwise return 0
+            return_data = self._data.get(key, 0)
 
         return return_data
 
     def update_user_latest_timestamp(self, user_id: str, chat_id: str, timestamp: int) -> None:
-        # Construct the key for the user_id and chat_id
+        # Construct index key combining user_id and chat_id
         key = f'{user_id}_{chat_id}'
 
         with self._lock:  # Acquire the lock for inserting data
-            # Check if the key exists in the dictionary
-            if key not in self._data:
-                # User ID does not exist in the dictionary - create an entry for it
-                self._data[key] = timestamp
-            elif timestamp > self._data[key]:
-                # Update the latest timestamp of the user in the dictionary
+            # If key exists in the dictionary, compare update its value to the timestamp
+            if timestamp > self._data.setdefault(key, 0):
+                # Update latest timestamp
                 self._data[key] = timestamp
 
 
 class Pipeline:
     '''
-    This is a class for creating a Pipeline for censoring
-    sensitive information in text originating from user=uploaded
-    DOCX document files.
+    This is a class for creating a Pipeline for creating
+    summaries of user-uploaded documents, utilizing direct
+    API calls to a LLM model hosted on an external service.
     '''
     class Valves(BaseModel):
         LITELLM_API_BASE_URL: str = Field(
@@ -221,13 +275,17 @@ class Pipeline:
         logger.addHandler(handlersys)
 
         # Initialize user file contents dictionary
-        self.user_file_contents = SharedUserFilesDict()
+        self.user_files = SharedUserFilesDict()
 
         # Keep a list of latest users upload timestamps
         self.user_timestamps = SharedUserFilesLatestUploadDict()
 
         # Initialize LLM endpoint API URL
-        self.service_url = f"{self.valves.LITELLM_API_BASE_URL.rstrip('/').rstrip('/v1')}/v1/chat/completions"
+        if self.valves.LITELLM_API_BASE_URL.startswith(("http://", "https://")):
+            self.service_url = self.valves.LITELLM_API_BASE_URL
+        else:
+            self.service_url = f"http://{self.valves.LITELLM_API_BASE_URL}"
+            logger.info(f"Added http:// prefix to LITELLM_API_BASE_URL {self.valves.LITELLM_API_BASE_URL}")
 
         # Initialize HTTP headers for the LLM endpoint API requests
         self.http_headers = {
@@ -268,72 +326,39 @@ class Pipeline:
 
     async def inlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
         '''Modifies form data before the OpenAI API request.'''
-        logging.getLogger(self.valves.APP_ID).debug(f"INLET begin:\nBody:\n{json.dumps(body, indent=2)}")
+        logging.getLogger(self.valves.APP_ID).debug(f"INLET begin")
+        # logging.getLogger(self.valves.APP_ID).debug(f"INLET begin:\nBody: {json.dumps(body, indent=2)}")
 
+        # Check if the body contains files
         if body.get("files", []):
-            # Extract user ID
-            user_id = __user__['id'] if __user__ is not None else ''
-
-            # Extract user chat, session and file information from the request body
+            # Extract user ID and chat information
+            user_id = __user__['id']
             chat_id = body.get('metadata', {}).get('chat_id', '')
 
-            # Delete user-uploaded data information from the shared dictionary (if any)
-            self.user_file_contents.delete_user_data(user_id, chat_id)
+            # Extract model creation timestamp from the request body
+            model_timestamp = body.get('metadata', {}).get('model', {}).get('created', 0)
 
-            # Store chat ID in the last message content to be passed to the Pipe method, in the format
-            # "Original content\n\n\n\n\nChat ID\n\n\n\n\n<chat_id>\n\n\n\n\n"
-            body['messages'][-1]['content'] = body['messages'][-1]['content'] + f"\n\n\n\n\nChat ID\n\n\n\n\n{chat_id}\n\n\n\n\n"
+            # Update the user-chat timestamp in the shared dictionary
+            self.user_timestamps.update_user_latest_timestamp(user_id, chat_id, model_timestamp)
 
-
-            # Retrieve the timestamp of the user's latest file uploaded
+            # Retrieve latest user-chat timestamp from the shared dictionary
             latest_timestamp = self.user_timestamps.get_user_latest_timestamp(user_id, chat_id)
 
-            # Check if no timestamp has been set yet
-            if latest_timestamp == 0:
-                # Extract the timestamp of the latest model update
-                latest_timestamp = int(body.get('metadata', {}).get('model', {}).get('created', 0))
+            for file_info in self._extract_body_files(body["files"][::-1]):
+                # Extract file creation timestamp from the request body
+                file_timestamp = file_info.get_timestamp()
 
-                # Update the latest timestamp of the user in the shared dictionary
-                self.user_timestamps.update_user_latest_timestamp(user_id, chat_id, latest_timestamp)
+                # If the file was uploaded after the latest timestamp, update the user files
+                if file_timestamp > latest_timestamp:
+                    # Create an OIFile instance and insert it into the shared dictionary
+                    self.user_files.add_user_file_info(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        file_info=file_info
+                    )
 
-            # Keep a copy of the timestamp of the user's latest file uploaded
-            new_files_latest_timestamp = latest_timestamp
-
-
-            file_infos = []
-
-            # Iterate over the whole list of uploaded files
-            for file_info in body.get("files", []):
-                # Extract file information
-                file = file_info["file"]
-
-                # Check if file was among the latest uploaded files
-                if int(file["created_at"]) > latest_timestamp:
-                    file_infos.append(file_info)
-
-                if int(file["created_at"]) > new_files_latest_timestamp:
-                    # Update the latest timestamp of the uploaded files
-                    new_files_latest_timestamp = int(file["created_at"])
-
-            # Update the latest timestamp of the user in the shared dictionary
-            self.user_timestamps.update_user_latest_timestamp(user_id, chat_id, new_files_latest_timestamp)
-
-
-            new_files = {}
-
-            # Extract file info for all files in the body
-            for file in self._extract_body_files(file_infos):
-                # Add file to the list of collected new files
-                new_files[file.get_id()] = file
-
-            logging.getLogger(self.valves.APP_ID).debug(f"INLET: User-uploaded files '{new_files}'")
-
-            # Keep new user files into the current user file contents
-            self.user_file_contents.insert_user_files(user_id, chat_id, new_files)
-
-            # Keep only new and acceptable files in the request body (removing previously processed and unacceptable files)
-            body["files"] = [file_info for file_info in body["files"] if file_info["file"]["id"] in new_files]
-            body["metadata"]["files"] = [file_info for file_info in body["metadata"]["files"] if file_info["file"]["id"] in new_files]
+                    # Update the user-chat timestamp in the shared dictionary
+                    self.user_timestamps.update_user_latest_timestamp(user_id, chat_id, file_timestamp)
 
         logging.getLogger(self.valves.APP_ID).debug(f"INLET end")
 
@@ -341,16 +366,13 @@ class Pipeline:
 
     async def outlet(self, body: dict, __user__: Optional[dict] = None) -> dict:
         '''Modifies OpenAI response form data before returning them to the user.'''
-        logging.getLogger(self.valves.APP_ID).debug(f"OUTLET begin:\nBody:\n{json.dumps(body, indent=2)}")
+        logging.getLogger(self.valves.APP_ID).debug(f"OUTLET begin")
+        # logging.getLogger(self.valves.APP_ID).debug(f"OUTLET begin:\nBody: {json.dumps(body, indent=2)}")
 
-        # Extract user chat information
+        user_id = __user__['id']
         chat_id = body.get('chat_id', '')
 
-        # Extract user ID
-        user_id = __user__['id'] if __user__ is not None else ''
-
-        # Delete user-uploaded data information from the shared dictionary (if any)
-        self.user_file_contents.delete_user_data(user_id, chat_id)
+        self.user_files.clear_user_files_info(user_id, chat_id)
 
         logging.getLogger(self.valves.APP_ID).debug(f"OUTLET end")
 
@@ -358,111 +380,117 @@ class Pipeline:
 
     def pipe(self, user_message: str, model_id: str, messages: list[dict], body: dict) -> Union[str, Generator, Iterator]:
         '''Custom pipeline logic (like RAG).'''
-        logging.getLogger(self.valves.APP_ID).debug(f"PIPE begin:\nBody:\n{json.dumps(body, indent=2)}")
+        logging.getLogger(self.valves.APP_ID).debug(f"PIPE begin")
+        # logging.getLogger(self.valves.APP_ID).debug(f"PIPE begin: Body:\n{json.dumps(body, indent=2)}")
+        # logging.getLogger(self.valves.APP_ID).debug(f"PIPE begin: Messages:\n{json.dumps(messages, indent=2)}")
 
-        return_data = ""
+        # Prepare return data
+        return_data = ''
 
-        # Extract user ID from the body
-        user_id = body.get('user', {}).get('id', '')
+        if body.get("metadata", {}).get("task", None) is None:
+            # Extract user ID from the body
+            user_id = body.get('user', {}).get('id', '')
 
-        # Extract chat ID from the messages
-        chat_id = ''
-        if messages[-1]['content']:
-            # Extract chat ID from the last message content, assuming the chat ID is stored in the format
-            # "Original content\n\n\n\n\nChat ID\n\n\n\n\n<chat_id>\n\n\n\n\n"
-            # This is a workaround to extract the chat ID from the last message content as it was added in the inlet method.
+            # Define a list to store files to process
+            files_infos_to_process = []
 
-            # Split the content by triple newlines to separate the parts
-            content_parts = messages[-1]['content'].split("\n\n\n\n\n") if messages[-1]['content'] else [''] * 3
+            for msg in messages[::-1]:
+                # logging.getLogger(self.valves.APP_ID).debug(f"PIPE: Message: {msg}")
 
-            # Extract the chat ID from the content parts
-            chat_id = content_parts[2]
+                if msg["role"] == "user":
+                    try:
+                        msg_content_json = json.loads(msg["content"])
 
-            # Restore the original content without the chat ID
-            messages[-1]['content'] = content_parts[0]
+                        if msg_content_json:
+                            # Extract chat ID from the message content
+                            chat_id = msg_content_json.get("chat_id", "")
 
+                            files_infos_to_process = self.user_files.get_user_files_info(user_id, chat_id)
 
-        # Extract user-uploaded files (if available)
-        user_files = self.user_file_contents.get_user_files(user_id, chat_id)
+                            # logging.getLogger(self.valves.APP_ID).debug(f"PIPE: User input files to process for user ID: {user_id} and chat ID: {chat_id}: {files_infos_to_process}")
+                        else:
+                            logging.getLogger(self.valves.APP_ID).warning(f"PIPE: No user input files found for user ID: {user_id}")
 
-        if not user_files:
-            logging.getLogger(self.valves.APP_ID).warning(f"PIPE: No input DOCX files were provided")
-            return_data = "No compatible files were uploaded. This model only supports DOCX files with UTF-8 encoding."
-        else:
-            if not any(user_file.get_size() for user_file in user_files.values()):
-                logging.getLogger(self.valves.APP_ID).warning(f"PIPE: All input DOCX files are empty")
-                return_data = "All uploaded DOCX files are empty."
+                        break
+                    except json.JSONDecodeError:
+                        logging.getLogger(self.valves.APP_ID).warning(f"PIPE: Could not decode user message content as JSON: {msg['content']}")
+                        continue
+
+            if not files_infos_to_process:
+                return_data = "ERROR: No compatible files were uploaded. This model only supports uploading documents and raw text files."
+                logging.getLogger(self.valves.APP_ID).warning(f"PIPE: No input files were provided")
             else:
-                logging.getLogger(self.valves.APP_ID).debug(f"PIPE: User input files:\n{user_files}")
+                if not any(file.get_size() for file in files_infos_to_process):
+                    return_data = "ERROR: All uploaded documents are empty."
+                    logging.getLogger(self.valves.APP_ID).warning(f"PIPE: All user-uploaded documents are empty")
+                else:
+                    logging.getLogger(self.valves.APP_ID).debug(f"PIPE: User input files to process:\n{files_infos_to_process}")
 
-                data = []
+                    data = []
 
-                for file_id, file in user_files.items():
-                    if file.get_size():
+                    for file in files_infos_to_process:
                         try:
-                            logging.getLogger(self.valves.APP_ID).debug(f"PIPE: Getting model file summary...")
+                            logging.getLogger(self.valves.APP_ID).debug(f"PIPE: Getting file summary using the LLM model...")
 
-                            summary = self._get_summarization(file.get_content())
+                            summary = self._get_summary(file.get_content())
 
-                            data.append(
-                                {
-                                    "id": file.get_id(),
-                                    "summary": summary,
-                                }
-                            )
+                            data.append({
+                                "id": file.get_id(),
+                                "filename": file.get_name(),
+                                "summary": summary,
+                            })
                         except Exception as e:
                             logging.getLogger(self.valves.APP_ID).error(f"PIPE: Error processing file {file.get_name()}: {e}")
-                    else:
-                        logging.getLogger(self.valves.APP_ID).warning(f"PIPE: File {file.get_name()} is empty")
 
-                if data:
-                    return_data = json.dumps(data, indent=2)
-                else:
-                    return_data = "Error processing the content of uploaded DOCX files."
+                    if data:
+                        return_data = json.dumps(data, indent=2)
+                    else:
+                        return_data = "Error processing the content of uploaded DOCX files."
 
         logging.getLogger(self.valves.APP_ID).debug(f"PIPE end")
 
         return return_data
 
-    def _extract_body_files(self, data: dict | list) -> list[OIFile]:
+    def _extract_body_files(self, data: list[dict] | dict) -> list[OIFile]:
         '''
         This function extracts file information from the provided data.
 
         It processes the data to create a list of OIFile instances, which represent user-uploaded files.
-        The function checks if the input data is a dictionary or a list. If it's a dictionary, it extracts the "files" key.
-
-        If it's a list, it uses the list directly. It then iterates over the entries, checking if the file is a DOCX file
-        by verifying the content type. If it is, it creates an OIFile instance for each file and appends it to the list.
+        The function checks if the input data is a single dictionary or a list of dictionaries, which each
+        dictionary represents a single file.
+        - If it's a dictionary, it extracts the "files" key.
+        - If it's a list, it uses the list directly. It then iterates over the entries, checking if the file
+        is a document file with content. If it is, it creates an OIFile instance for each file and appends
+        it to the list of user-chat files.
 
         Input parameters:
         * data: A dictionary or list containing file information.
+
         Returns:
         * A list of OIFile instances representing the user-uploaded files.
         '''
-        oifiles = []
+        files = []
 
         if isinstance(data, dict):
             # If inlet_body is a dictionary (full inlet body), extract the "files" key
-            files_entries = data.get("files", [])
+            files_entries = [data]
         elif isinstance(data, list):
             # If inlet_body is a list (extracted "files" from inlet body), use it directly
             files_entries = data
 
         for entry in files_entries:
             file_info = entry.get("file", {})
-            if file_info:
-                # Only process DOCX files
-                if file_info['meta']['content_type'] == \
-                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                    # Create an OIFile instance and append it to the list
-                    oifiles.append(
-                        OIFile(file_info['id'], file_info['filename'], file_info['data']['content'])
-                    )
+            if file_info.get('data', {}).get('content', ''):
+                # Create an OIFile instance and append it to the list
+                file = OIFile(file_info['id'], file_info['filename'], file_info['meta']['content_type'] , file_info['data']['content'])
+                file.set_timestamp(file_info.get('updated_at', 0))
 
-        return oifiles
+                files.append(file)
+
+        return files
 
     # Change from async function to regular function
-    def _get_summarization(self, text: str, max_retries: int=5, wait_interval: int=10) -> str:
+    def _get_summary(self, text: str, max_retries: int=5, wait_interval: int=10) -> str:
         '''
         This function sends a request to the OpenAI API to get a summarization of the provided text.
         If the text is empty, it returns a message indicating that no content was provided.
@@ -470,6 +498,7 @@ class Pipeline:
 
         Input parameters:
         * text: The text to be summarized.
+
         Returns:
         * The summary of the text.
         '''
@@ -480,11 +509,11 @@ class Pipeline:
         else:
             # Check API key before making request
             if not self.valves.LITELLM_API_KEY:
-                logging.getLogger(self.valves.APP_ID).error(f"_get_summarization: Invalid API key configuration")
+                logging.getLogger(self.valves.APP_ID).error(f"_get_summary: Invalid API key configuration")
                 summary = "Error: API key not properly configured. Please set a valid LITELLM_API_KEY environment variable."
             else:
                 if self._check_litellm_status():
-                    logging.getLogger(self.valves.APP_ID).debug(f"_get_summarization: LiteLLM service is running")
+                    logging.getLogger(self.valves.APP_ID).debug(f"_get_summary: LiteLLM service is running")
 
                     # Create LLM summarization payload
                     summarization_payload = {
@@ -497,12 +526,14 @@ class Pipeline:
                         "stream": False,
                     }
 
+                    url = f"{self.service_url.rstrip('/').rstrip('/v1')}/v1/chat/completions"
+
                     # Log request info (without sensitive data)
                     masked_headers = dict(self.http_headers)
                     if "Authorization" in masked_headers:
                         masked_headers["Authorization"] = "Bearer sk-****"
                     logging.getLogger(self.valves.APP_ID).debug(
-                        f"_get_summarization: Sending request to {self.service_url} with masked headers {masked_headers}"
+                        f"_get_summary: Sending request to {url} with masked headers {masked_headers}"
                     )
 
                     try:
@@ -521,7 +552,7 @@ class Pipeline:
 
                         # Try primary service
                         response = session.post(
-                            self.service_url,
+                            url=url,
                             headers=self.http_headers,
                             json=summarization_payload,
                             timeout=60,
@@ -533,13 +564,13 @@ class Pipeline:
                             res = response.json()
                             summary = res["choices"][0]["message"]["content"]
                         elif response.status_code == 401:
-                            logging.getLogger(self.valves.APP_ID).error(f"_get_summarization: Authentication error: {response.text}")
+                            logging.getLogger(self.valves.APP_ID).error(f"_get_summary: Authentication error: {response.text}")
                             summary = "Error: Authentication failed with the LLM service. Please check your API key."
                         else:
                             logging.getLogger(self.valves.APP_ID).error(
-                                f"_get_summarization: HTTP Error {response.status_code}: {response.text}"
+                                f"_get_summary: HTTP Error {response.status_code}: {response.text}"
                             )
-                            summary = f"_get_summarization: Error: Service returned status code {response.status_code}"
+                            summary = f"_get_summary: Error: Service returned status code {response.status_code}"
                     except requests.exceptions.ConnectionError as e:
                         # Connection failed - log the issue
                         logging.getLogger(self.valves.APP_ID).error(
@@ -547,14 +578,14 @@ class Pipeline:
                         )
                         summary = "Error: Could not connect to LLM service. Please try again later."
                     except Exception as e:
-                        logging.getLogger(self.valves.APP_ID).error(f"_get_summarization: Error processing text: {e}")
+                        logging.getLogger(self.valves.APP_ID).error(f"_get_summary: Error processing text: {e}")
                         summary = f"Error processing text"
 
         return summary
 
     def _check_litellm_status(self) -> bool:
         """Check if LiteLLM server is running"""
-        url = f"{self.valves.LITELLM_API_BASE_URL.rstrip('/').rstrip('/v1')}/health"
+        url = f"{self.service_url.rstrip('/').rstrip('/v1')}/health"
 
         try:
             # Disable any proxy settings that might interfere
